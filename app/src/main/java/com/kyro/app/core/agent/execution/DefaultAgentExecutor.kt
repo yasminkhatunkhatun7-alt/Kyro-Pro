@@ -8,6 +8,9 @@ import com.kyro.app.core.agent.policy.PolicyDecision
 import com.kyro.app.core.agent.tools.ToolInput
 import com.kyro.app.core.agent.tools.ToolExecutionContext
 import com.kyro.app.core.agent.tools.ToolResult
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.isActive
+import kotlin.coroutines.coroutineContext
 
 class DefaultAgentExecutor(
     private val toolRegistry: ToolRegistry,
@@ -16,59 +19,49 @@ class DefaultAgentExecutor(
 
     override suspend fun executePlan(plan: AgentPlan): AgentResult {
         var completedSteps = 0
+        val successfulStepIds = mutableSetOf<String>()
 
-        for (step in plan.steps.sortedBy { it.order }) {
+        for (step in plan.steps) {
+            if (!coroutineContext.isActive) {
+                return AgentResult.Cancelled(plan.taskId, "Execution cancelled.", completedSteps, plan.steps.size)
+            }
+
+            // Check dependencies
+            if (!successfulStepIds.containsAll(step.dependsOn)) {
+                return AgentResult.Failure(plan.taskId, "Dependencies for step \${step.id} were not met.", completedSteps, plan.steps.size, false)
+            }
+
             val tool = toolRegistry.get(step.toolId)
-                ?: return AgentResult.Failure(
-                    taskId = plan.taskId,
-                    message = "Tool not found: \${step.toolId}",
-                    completedSteps = completedSteps,
-                    totalSteps = plan.steps.size,
-                    recoverable = false
-                )
+                ?: return AgentResult.Failure(plan.taskId, "Tool not found: \${step.toolId}", completedSteps, plan.steps.size, false)
 
             val decision = policyEngine.evaluate(tool)
             if (decision is PolicyDecision.Denied) {
-                return AgentResult.Failure(
-                    taskId = plan.taskId,
-                    message = "Execution denied: \${decision.reason}",
-                    completedSteps = completedSteps,
-                    totalSteps = plan.steps.size,
-                    recoverable = false
-                )
+                return AgentResult.Failure(plan.taskId, "Execution denied: \${decision.reason}", completedSteps, plan.steps.size, false)
             }
+
             if (decision is PolicyDecision.RequiresApproval) {
-                // In a full implementation, pause execution and wait for user approval UI event
-                // For now, fail execution if approval is required.
-                return AgentResult.Failure(
-                    taskId = plan.taskId,
-                    message = "Requires approval: \${decision.reason}",
-                    completedSteps = completedSteps,
-                    totalSteps = plan.steps.size,
-                    recoverable = true
-                )
+                return AgentResult.Failure(plan.taskId, "Requires approval: \${decision.reason}", completedSteps, plan.steps.size, true)
             }
 
             val context = ToolExecutionContext(taskId = plan.taskId)
-            val result = tool.execute(ToolInput(step.arguments), context)
 
-            if (result is ToolResult.Failure) {
-                return AgentResult.Failure(
-                    taskId = plan.taskId,
-                    message = "Step \${step.id} failed: \${result.error}",
-                    completedSteps = completedSteps,
-                    totalSteps = plan.steps.size,
-                    recoverable = result.isRecoverable
-                )
+            try {
+                val result = withTimeout(tool.metadata.timeoutMillis) {
+                    tool.execute(ToolInput(step.arguments), context)
+                }
+
+                if (result is ToolResult.Failure) {
+                    return AgentResult.Failure(plan.taskId, "Step \${step.id} failed: \${result.error}", completedSteps, plan.steps.size, result.isRecoverable)
+                }
+                successfulStepIds.add(step.id)
+                completedSteps++
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                 return AgentResult.Failure(plan.taskId, "Step \${step.id} timed out.", completedSteps, plan.steps.size, true)
+            } catch (e: Exception) {
+                 return AgentResult.Failure(plan.taskId, "Step \${step.id} threw an exception: \${e.message}", completedSteps, plan.steps.size, false)
             }
-            completedSteps++
         }
 
-        return AgentResult.Success(
-            taskId = plan.taskId,
-            message = "Plan completed successfully.",
-            completedSteps = completedSteps,
-            totalSteps = plan.steps.size
-        )
+        return AgentResult.Success(plan.taskId, "Plan completed successfully.", completedSteps, plan.steps.size)
     }
 }

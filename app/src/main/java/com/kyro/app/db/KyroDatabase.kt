@@ -5,7 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [Macro::class], version = 1, exportSchema = false)
+@Database(entities = [Macro::class, AgentTaskEntity::class, AgentStepEntity::class], version = 2, exportSchema = false)
 abstract class KyroDatabase : RoomDatabase() {
     abstract fun kyroDao(): KyroDao
 
@@ -19,7 +19,9 @@ abstract class KyroDatabase : RoomDatabase() {
                     context.applicationContext,
                     KyroDatabase::class.java,
                     "kyro_database"
-                ).build()
+                )
+                .fallbackToDestructiveMigration() // Allowed during early alpha, real prod needs Migration strategies
+                .build()
                 INSTANCE = instance
                 instance
             }
