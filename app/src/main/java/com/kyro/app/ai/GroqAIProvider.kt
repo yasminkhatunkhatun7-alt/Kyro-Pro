@@ -2,39 +2,29 @@ package com.kyro.app.ai
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
-import org.json.JSONObject
 
-class TermuxAIProvider(private val endpointUrl: String = "http://localhost:8080/v1/chat/completions") : AIProvider {
+class GroqAIProvider(private val apiKey: String) : AIProvider {
+    private val endpoint = "https://api.groq.com/openai/v1/chat/completions"
 
-    override suspend fun isAvailable(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val url = URL(endpointUrl.replace("/chat/completions", "/models"))
-            val connection = url.openConnection() as HttpURLConnection
-            connection.connectTimeout = 2000
-            connection.readTimeout = 2000
-            connection.requestMethod = "GET"
-            val responseCode = connection.responseCode
-            connection.disconnect()
-            responseCode == 200
-        } catch (e: Exception) {
-            false
-        }
-    }
+    override suspend fun isAvailable(): Boolean = apiKey.isNotBlank()
 
     override suspend fun generateResponse(prompt: String): AIResponse = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank()) return@withContext AIResponse.Error("API key not configured")
         try {
-            val url = URL(endpointUrl)
+            val url = URL(endpoint)
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "POST"
+            connection.setRequestProperty("Authorization", "Bearer $apiKey")
             connection.setRequestProperty("Content-Type", "application/json")
             connection.doOutput = true
 
             val jsonInputString = """
                 {
-                  "messages": [{"role": "user", "content": "$prompt"}],
-                  "temperature": 0.7
+                  "model": "llama3-8b-8192",
+                  "messages": [{"role": "user", "content": "${prompt.replace("\"", "\\\"").replace("\n", "\\n")}"}]
                 }
             """.trimIndent()
 
@@ -43,19 +33,18 @@ class TermuxAIProvider(private val endpointUrl: String = "http://localhost:8080/
                 os.write(input, 0, input.size)
             }
 
-            val responseCode = connection.responseCode
-            if (responseCode == HttpURLConnection.HTTP_OK) {
+            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
                 val responseString = connection.inputStream.bufferedReader().use { it.readText() }
-                // Basic parsing, assuming standard OpenAI compatible format
                 val jsonObject = JSONObject(responseString)
                 val choices = jsonObject.getJSONArray("choices")
                 val text = choices.getJSONObject(0).getJSONObject("message").getString("content")
                 AIResponse.Success(text)
             } else {
-                AIResponse.Error("Local AI responded with code: $responseCode")
+                val errorString = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: "Unknown error"
+                AIResponse.Error("Groq API error: ${connection.responseCode} - $errorString")
             }
         } catch (e: Exception) {
-            AIResponse.Error(e.message ?: "Failed to connect to Local AI")
+            AIResponse.Error(e.message ?: "Failed to connect to Groq")
         }
     }
 }

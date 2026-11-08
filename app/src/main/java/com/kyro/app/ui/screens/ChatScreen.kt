@@ -6,7 +6,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Text
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -14,16 +17,26 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kyro.app.ui.components.glassmorphism
 import com.kyro.app.ui.theme.Amber
+import com.kyro.app.ui.theme.DarkGraphite
 import com.kyro.app.ui.theme.Pewter
 import com.kyro.app.ui.theme.WarmIvory
 
 data class ChatMessage(val id: String, val text: String, val isKyro: Boolean)
 
 @Composable
-fun ChatScreen(messages: List<ChatMessage>, isThinking: Boolean, modifier: Modifier = Modifier) {
+fun ChatScreen(
+    messages: List<ChatMessage>,
+    isThinking: Boolean,
+    onSendMessage: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var inputText by remember { mutableStateOf("") }
+
     Box(modifier = modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier
@@ -46,6 +59,40 @@ fun ChatScreen(messages: List<ChatMessage>, isThinking: Boolean, modifier: Modif
                 }
             }
         }
+
+        // Input Area
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 110.dp)
+        ) {
+            TextField(
+                value = inputText,
+                onValueChange = { inputText = it },
+                modifier = Modifier.fillMaxWidth().glassmorphism(cornerRadius = 24.dp),
+                placeholder = { Text("Ask KYRO...", color = Pewter) },
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedTextColor = WarmIvory,
+                    unfocusedTextColor = WarmIvory,
+                    cursorColor = Amber,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent
+                ),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(
+                    onSend = {
+                        if (inputText.isNotBlank()) {
+                            onSendMessage(inputText)
+                            inputText = ""
+                        }
+                    }
+                ),
+                maxLines = 3
+            )
+        }
     }
 }
 
@@ -59,7 +106,6 @@ fun MessageBubble(msg: ChatMessage) {
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = alignment
     ) {
-        // Futuristic holographic text feel for KYRO
         Text(
             text = msg.text,
             color = color,
@@ -91,7 +137,6 @@ fun ThinkingIndicator() {
                 .size(16.dp)
                 .background(Color.Transparent)
         ) {
-            // Simplified small rotating ring representation
             Text("O", color = Amber, modifier = Modifier.alpha(alpha))
         }
         Spacer(modifier = Modifier.width(8.dp))

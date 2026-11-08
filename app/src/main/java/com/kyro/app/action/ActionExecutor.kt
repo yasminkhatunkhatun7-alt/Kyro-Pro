@@ -29,69 +29,72 @@ class ActionExecutor(private val context: Context) {
             if (intent != null) {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(intent)
-                return "Opening \$appName"
+                return "Opened $appName"
             }
         }
 
-        return "I could not find an app named \$appName."
+        return "Could not find an app named $appName."
     }
 
-    fun makeCall(contactNameOrNumber: String): String {
-        val intent = Intent(Intent.ACTION_CALL)
-        intent.data = Uri.parse("tel:\$contactNameOrNumber")
+    fun makeCall(contactNumber: String): String {
+        val intent = Intent(Intent.ACTION_DIAL) // Safer than ACTION_CALL
+        intent.data = Uri.parse("tel:$contactNumber")
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
         return try {
             context.startActivity(intent)
-            "Calling \$contactNameOrNumber"
-        } catch (e: SecurityException) {
-            "I need permission to make phone calls."
+            "Opened dialer for $contactNumber"
+        } catch (e: Exception) {
+            "Could not open dialer."
         }
     }
 
     fun sendSms(contactNumber: String, message: String): String {
         val intent = Intent(Intent.ACTION_SENDTO)
-        intent.data = Uri.parse("smsto:\$contactNumber")
+        intent.data = Uri.parse("smsto:$contactNumber")
         intent.putExtra("sms_body", message)
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
         return try {
             context.startActivity(intent)
-            "Opening SMS app to send message."
+            "Opened SMS composer for $contactNumber"
         } catch (e: Exception) {
-            "Could not open SMS app."
+            "Could not open SMS composer."
         }
     }
 
     fun toggleFlashlight(on: Boolean): String {
         return try {
             val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-            val cameraId = cameraManager.cameraIdList[0]
+            val cameraIdList = cameraManager.cameraIdList
+            if (cameraIdList.isEmpty()) {
+                return "No camera available for flashlight."
+            }
+            // In a real app we'd check if the camera actually has a flash unit
+            val cameraId = cameraIdList[0]
             cameraManager.setTorchMode(cameraId, on)
-            if (on) "Turning flashlight on." else "Turning flashlight off."
+            if (on) "Turned flashlight on." else "Turned flashlight off."
         } catch (e: Exception) {
-            "I could not access the flashlight."
+            "Could not access the flashlight."
         }
     }
 
     fun toggleWifi(on: Boolean): String {
-        // Direct Wi-Fi toggling is restricted in newer Android versions
-        // We open the settings panel as a fallback if needed
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val intent = Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY)
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(intent)
-                "Opening internet settings."
+                "Opened internet settings panel."
             } else {
                 @Suppress("DEPRECATION")
                 val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
                 @Suppress("DEPRECATION")
                 wifiManager.isWifiEnabled = on
-                if (on) "Turning Wi-Fi on." else "Turning Wi-Fi off."
+                if (on) "Turned Wi-Fi on." else "Turned Wi-Fi off."
             }
         } catch (e: Exception) {
-             "I could not change Wi-Fi settings."
+             "Could not change Wi-Fi settings."
         }
     }
 
@@ -103,7 +106,7 @@ class ActionExecutor(private val context: Context) {
 
         return try {
             context.startActivity(intent)
-            "Searching YouTube for \$query"
+            "Searched YouTube for $query"
         } catch (e: Exception) {
             "YouTube app is not installed or accessible."
         }

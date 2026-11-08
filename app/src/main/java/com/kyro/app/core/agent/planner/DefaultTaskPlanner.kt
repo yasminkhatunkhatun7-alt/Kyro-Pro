@@ -6,7 +6,11 @@ import com.kyro.app.core.agent.api.AgentRequest
 import com.kyro.app.core.agent.tools.ToolRegistry
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.booleanOrNull
 
 class DefaultTaskPlanner(
     private val aiProvider: AIProvider,
@@ -15,33 +19,71 @@ class DefaultTaskPlanner(
     private val dependencyResolver: DependencyResolver
 ) : TaskPlanner {
 
+    private val jsonParser = Json { ignoreUnknownKeys = true }
+
     override suspend fun plan(request: AgentRequest): AgentPlan? {
         val toolsDesc = toolRegistry.getDescriptions().joinToString("\n") { it.name + " (" + it.id + "): " + it.description }
-        val prompt = "Create a plan for goal: \${request.userGoal}\nAvailable tools:\n\$toolsDesc\nProvide the response as a JSON array of step objects, each with id, toolId, and arguments."
+        val prompt = """
+            Create a plan for goal: ${request.userGoal}
+            Available tools:
+            $toolsDesc
+            Return ONLY a valid JSON object matching this schema:
+            {
+              "summary": "String",
+              "steps": [
+                {
+                  "id": "String",
+                  "order": Int,
+                  "title": "String",
+                  "description": "String",
+                  "toolId": "String",
+                  "arguments": { "key": "value" },
+                  "dependsOn": ["String"]
+                }
+              ]
+            }
+        """.trimIndent()
 
         val response = aiProvider.generateResponse(prompt)
         if (response is AIResponse.Success) {
-            // Simplified fallback for demo/skeleton purposes.
-            // A real implementation would parse the JSON correctly using kotlinx.serialization
-            val fakePlan = buildFallbackPlan(request)
-            if (validator.validate(fakePlan)) {
-                return fakePlan.copy(steps = dependencyResolver.resolveExecutionOrder(fakePlan.steps))
+            try {
+                // Strip markdown formatting if AI wraps it in ```json ... ```
+                var cleanJson = response.text.trim()
+                if (cleanJson.startsWith("```json")) {
+                    cleanJson = cleanJson.substring(7)
+                }
+                if (cleanJson.endsWith("```")) {
+                    cleanJson = cleanJson.substring(0, cleanJson.length - 3)
+                }
+
+                val jsonElement = jsonParser.parseToJsonElement(cleanJson).jsonObject
+                val summary = jsonElement["summary"]?.jsonPrimitive?.content ?: "Generated plan"
+
+                val stepsArray = jsonElement["steps"]?.jsonArray ?: return null
+                val planSteps = stepsArray.map { stepElement ->
+                    val stepObj = stepElement.jsonObject
+                    PlanStep(
+                        id = stepObj["id"]?.jsonPrimitive?.content ?: java.util.UUID.randomUUID().toString(),
+                        order = stepObj["order"]?.jsonPrimitive?.intOrNull ?: 0,
+                        title = stepObj["title"]?.jsonPrimitive?.content ?: "",
+                        description = stepObj["description"]?.jsonPrimitive?.content ?: "",
+                        toolId = stepObj["toolId"]?.jsonPrimitive?.content ?: "",
+                        arguments = stepObj["arguments"]?.jsonObject ?: JsonObject(emptyMap()),
+                        dependsOn = stepObj["dependsOn"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
+                    )
+                }
+
+                val plan = AgentPlan(request.id, request.userGoal, summary, planSteps)
+
+                if (validator.validate(plan)) {
+                    val resolvedSteps = dependencyResolver.resolveExecutionOrder(plan.steps)
+                    return plan.copy(steps = resolvedSteps)
+                }
+            } catch (e: Exception) {
+                // Parsing failed
+                return null
             }
         }
         return null
-    }
-
-    private fun buildFallbackPlan(request: AgentRequest): AgentPlan {
-        val lowerGoal = request.userGoal.lowercase()
-        val steps = mutableListOf<PlanStep>()
-        if (lowerGoal.contains("flashlight")) {
-            val isOn = !lowerGoal.contains("off")
-            steps.add(PlanStep("step1", 1, "Toggle flashlight", "Turn flashlight on/off", "android.flashlight", JsonObject(mapOf("on" to JsonPrimitive(isOn)))))
-        } else if (lowerGoal.contains("open")) {
-            val app = lowerGoal.replace("open", "").trim()
-            steps.add(PlanStep("step1", 1, "Open App", "Opens an app", "android.open_app", JsonObject(mapOf("app_name" to JsonPrimitive(app)))))
-        }
-
-        return AgentPlan(request.id, request.userGoal, "Generated plan", steps)
     }
 }

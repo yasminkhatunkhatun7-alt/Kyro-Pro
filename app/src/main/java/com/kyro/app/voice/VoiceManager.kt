@@ -1,7 +1,9 @@
 package com.kyro.app.voice
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.os.Bundle
 import android.speech.RecognitionListener
@@ -10,6 +12,7 @@ import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,16 +36,14 @@ class VoiceManager(private val context: Context) : RecognitionListener, TextToSp
     var onResult: ((String) -> Unit)? = null
 
     init {
-        initSpeechRecognizer()
         initTextToSpeech()
+        // Delay SpeechRecognizer init until startListening to ensure permissions are granted
     }
 
-    private fun initSpeechRecognizer() {
-        if (SpeechRecognizer.isRecognitionAvailable(context)) {
+    private fun ensureSpeechRecognizer() {
+        if (speechRecognizer == null && SpeechRecognizer.isRecognitionAvailable(context)) {
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
             speechRecognizer?.setRecognitionListener(this)
-        } else {
-            Log.e("VoiceManager", "Speech recognition is not available on this device.")
         }
     }
 
@@ -51,10 +52,17 @@ class VoiceManager(private val context: Context) : RecognitionListener, TextToSp
     }
 
     fun startListening() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            Log.e("VoiceManager", "RECORD_AUDIO permission not granted")
+            return
+        }
+
+        ensureSpeechRecognizer()
+
         _isListening.value = true
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN") // Use config in real app
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
@@ -79,13 +87,10 @@ class VoiceManager(private val context: Context) : RecognitionListener, TextToSp
         val utteranceId = "kyro_utterance_${System.currentTimeMillis()}"
 
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {
-            }
-
+            override fun onStart(utteranceId: String?) {}
             override fun onDone(utteranceId: String?) {
                 onDone?.invoke()
             }
-
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
                 onDone?.invoke()
@@ -101,7 +106,9 @@ class VoiceManager(private val context: Context) : RecognitionListener, TextToSp
 
     fun release() {
         speechRecognizer?.destroy()
+        speechRecognizer = null
         textToSpeech?.shutdown()
+        textToSpeech = null
     }
 
     // --- RecognitionListener implementation ---
@@ -147,7 +154,7 @@ class VoiceManager(private val context: Context) : RecognitionListener, TextToSp
                  textToSpeech?.language = Locale.ENGLISH
              }
              textToSpeech?.setSpeechRate(1.0f)
-             textToSpeech?.setPitch(0.9f) // Slightly deeper voice for "Jarvis" feel
+             textToSpeech?.setPitch(0.9f)
         } else {
              Log.e("VoiceManager", "TextToSpeech initialization failed.")
         }

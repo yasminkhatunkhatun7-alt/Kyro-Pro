@@ -10,42 +10,37 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+
 import com.kyro.app.ui.components.KyroNavigationBar
 import com.kyro.app.ui.components.KyroOrb
 import com.kyro.app.ui.components.NavDest
 import com.kyro.app.ui.components.OrbState
-import com.kyro.app.ui.screens.ChatMessage
 import com.kyro.app.ui.screens.ChatScreen
 import com.kyro.app.ui.screens.SetupScreen
 import com.kyro.app.ui.theme.DeepObsidian
 import com.kyro.app.voice.VoiceManager
 
 @Composable
-fun KyroApp(voiceManager: VoiceManager, modifier: Modifier = Modifier) {
+fun KyroApp(voiceManager: VoiceManager, viewModel: KyroViewModel, modifier: Modifier = Modifier) {
     var currentDest by remember { mutableStateOf(NavDest.HOME) }
+
     val isListening by voiceManager.isListening.collectAsState()
     val spokenText by voiceManager.spokenText.collectAsState()
-    val assistantText by voiceManager.assistantText.collectAsState()
 
-    // Derived state for the Orb
+    val messages by viewModel.messages.collectAsState()
+    val isProcessing by viewModel.isProcessing.collectAsState()
+
     val orbState = when {
         isListening -> OrbState.LISTENING
-        assistantText.isNotEmpty() -> OrbState.THINKING
+        isProcessing -> OrbState.THINKING
         else -> OrbState.IDLE
     }
 
-    // Fake chat history for the new UI demonstration, hooking into VoiceManager
-    val messages = remember { mutableStateListOf<ChatMessage>() }
-
+    // Automatically submit voice transcription when recognized
     LaunchedEffect(spokenText) {
-        if (spokenText.isNotEmpty() && (messages.isEmpty() || messages.last().text != spokenText)) {
-            messages.add(ChatMessage(java.util.UUID.randomUUID().toString(), spokenText, false))
+        if (spokenText.isNotBlank()) {
+            viewModel.submitRequest(spokenText)
         }
-    }
-    LaunchedEffect(assistantText) {
-         if (assistantText.isNotEmpty() && (messages.isEmpty() || messages.last().text != assistantText)) {
-             messages.add(ChatMessage(java.util.UUID.randomUUID().toString(), assistantText, true))
-         }
     }
 
     Box(
@@ -53,7 +48,6 @@ fun KyroApp(voiceManager: VoiceManager, modifier: Modifier = Modifier) {
             .fillMaxSize()
             .background(DeepObsidian)
     ) {
-        // Main Content Area
         Crossfade(
             targetState = currentDest,
             animationSpec = tween(500),
@@ -64,7 +58,6 @@ fun KyroApp(voiceManager: VoiceManager, modifier: Modifier = Modifier) {
                 NavDest.HOME -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         KyroOrb(state = orbState)
-                        // Simple overlay to trigger listening in Home view
                         Button(
                             onClick = {
                                 if (isListening) voiceManager.stopListening() else voiceManager.startListening()
@@ -77,7 +70,11 @@ fun KyroApp(voiceManager: VoiceManager, modifier: Modifier = Modifier) {
                     }
                 }
                 NavDest.CHAT -> {
-                    ChatScreen(messages = messages, isThinking = orbState == OrbState.THINKING)
+                    ChatScreen(
+                        messages = messages,
+                        isThinking = orbState == OrbState.THINKING,
+                        onSendMessage = { text -> viewModel.submitRequest(text) }
+                    )
                 }
                 NavDest.SETUP -> {
                     SetupScreen()
@@ -85,7 +82,6 @@ fun KyroApp(voiceManager: VoiceManager, modifier: Modifier = Modifier) {
             }
         }
 
-        // Floating Bottom Navigation
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)

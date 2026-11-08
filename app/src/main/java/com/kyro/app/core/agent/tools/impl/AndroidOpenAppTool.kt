@@ -3,7 +3,6 @@ package com.kyro.app.core.agent.tools.impl
 import com.kyro.app.action.ActionExecutor
 import com.kyro.app.core.agent.tools.*
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonPrimitive
 
 class AndroidOpenAppTool(private val actionExecutor: ActionExecutor) : AgentTool {
     override val id = "android.open_app"
@@ -16,18 +15,18 @@ class AndroidOpenAppTool(private val actionExecutor: ActionExecutor) : AgentTool
     )
 
     override suspend fun execute(input: ToolInput, context: ToolExecutionContext): ToolResult {
-        val appName = input.arguments["app_name"]?.jsonPrimitive?.content
+        val appName = input.getString("app_name")
             ?: return ToolResult.Failure("Missing required argument 'app_name'")
 
         return try {
             val resultMessage = actionExecutor.openApp(appName)
-            if (resultMessage.startsWith("Opening")) {
+            if (resultMessage.startsWith("Opened")) {
                 ToolResult.Success(JsonPrimitive(resultMessage), resultMessage)
             } else {
                 ToolResult.Failure(resultMessage, isRecoverable = true)
             }
         } catch (e: Exception) {
-            ToolResult.Failure("Failed to open app: \${e.message}")
+            ToolResult.Failure("Failed to open app: ${e.message}")
         }
     }
 }
