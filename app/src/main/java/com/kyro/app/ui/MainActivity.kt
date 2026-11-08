@@ -12,6 +12,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import com.kyro.app.action.ActionExecutor
+import com.kyro.app.ui.theme.KyroTheme
 import com.kyro.app.voice.VoiceManager
 
 class MainActivity : ComponentActivity() {
@@ -40,7 +41,7 @@ class MainActivity : ComponentActivity() {
         checkPermissions()
 
         setContent {
-            MaterialTheme {
+            KyroTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
